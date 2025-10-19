@@ -1,0 +1,254 @@
+# KQuest 提示词模板配置
+# 用于大语言模型的提示词模板
+
+# 知识抽取提示词
+extraction: |
+  你是一个专业的知识图谱三元组抽取专家。请从给定的文本中抽取高质量的知识图谱三元组。
+
+  抽取规则：
+  1. 只抽取明确、客观的事实信息
+  2. 三元组格式：(主语, 谓语/关系, 宾语)
+  3. 主语和宾语应该是具体的实体、概念或属性值
+  4. 谓语应该是明确的关系或属性
+  5. 避免抽取主观意见、模糊表述或不确定性信息
+  6. 为每个三元组评估置信度（0.0-1.0）
+
+  三元组类型：
+  - entity_relation: 实体间关系 (如: "北京", "是...的首都", "中国")
+  - entity_attribute: 实体属性 (如: "北京", "人口", "2189万")
+  - class_relation: 类关系 (如: "狗", "属于", "哺乳动物")
+  - instance_of: 实例关系 (如: "哈士奇", "是", "狗")
+
+  请以JSON格式返回结果：
+  ```json
+  {
+    "triples": [
+      {
+        "subject": "主语",
+        "predicate": "谓语/关系", 
+        "object": "宾语",
+        "triple_type": "entity_relation|entity_attribute|class_relation|instance_of",
+        "confidence": 0.9,
+        "explanation": "简要说明抽取理由"
+      }
+    ]
+  }
+  ```
+
+  文本内容：
+  {text}
+
+  请开始抽取：
+
+# 三元组过滤提示词
+filtering: |
+  请评估以下知识三元组的质量，过滤掉低质量或错误的三元组。
+
+  评估标准：
+  1. 事实准确性：信息是否真实可靠
+  2. 明确性：表述是否清晰明确
+  3. 完整性：三元组是否完整
+  4. 相关性：是否与主题相关
+  5. 置信度：置信度是否合理
+
+  请返回过滤后的三元组列表，移除置信度低于{min_confidence}的三元组：
+
+  {triples}
+
+  请以JSON格式返回结果：
+  ```json
+  {
+    "filtered_triples": [
+      {
+        "subject": "主语",
+        "predicate": "谓语",
+        "object": "宾语", 
+        "triple_type": "类型",
+        "confidence": 0.8,
+        "explanation": "保留理由"
+      }
+    ],
+    "removed_triples": [
+      {
+        "subject": "主语",
+        "predicate": "谓语",
+        "object": "宾语",
+        "reason": "移除理由"
+      }
+    ]
+  }
+  ```
+
+# 知识推理查询提示词
+query: |
+  你是一个专业的知识图谱推理专家。基于给定的知识图谱三元组和用户问题，提供准确、详细的回答。
+
+  知识图谱三元组：
+  {triples}
+
+  用户问题：{question}
+
+  请按照以下步骤进行推理：
+  1. 分析问题意图和关键实体
+  2. 在知识图谱中查找相关的三元组
+  3. 进行逻辑推理，找出隐含的关系
+  4. 综合信息给出完整回答
+
+  请以JSON格式返回结果：
+  ```json
+  {
+    "answer": "详细回答",
+    "confidence": 0.9,
+    "reasoning_steps": [
+      "推理步骤1",
+      "推理步骤2"
+    ],
+    "source_triples": [
+      {
+        "subject": "主语",
+        "predicate": "谓语",
+        "object": "宾语"
+      }
+    ],
+    "additional_info": "补充信息"
+  }
+  ```
+
+  请开始推理：
+
+# 语义相似度评估提示词
+similarity: |
+  请评估以下两个概念的语义相似度：
+
+  概念1：{concept1}
+  概念2：{concept2}
+
+  请返回0.0-1.0之间的相似度分数，并简要说明理由。
+
+  请以JSON格式返回：
+  ```json
+  {
+    "similarity": 0.8,
+    "reason": "相似度理由"
+  }
+  ```
+
+# 知识推理提示词
+inference: |
+  基于以下知识图谱三元组，进行推理以发现新的知识关系：
+
+  已知三元组：
+  {triples}
+
+  请推理出可能的新三元组，这些三元组应该基于逻辑推理得出，而不是原文直接表述的。
+
+  请以JSON格式返回：
+  ```json
+  {
+    "inferred_triples": [
+      {
+        "subject": "主语",
+        "predicate": "谓语",
+        "object": "宾语",
+        "confidence": 0.7,
+        "reasoning": "推理过程"
+      }
+    ]
+  }
+  ```
+
+# 实体识别提示词
+entity_recognition: |
+  请从以下文本中识别出重要的实体、概念和关系：
+
+  文本：{text}
+
+  请识别：
+  1. 实体（人名、地名、组织名、概念等）
+  2. 属性（实体的特征、性质等）
+  3. 关系（实体之间的联系）
+
+  请以JSON格式返回：
+  ```json
+  {
+    "entities": [
+      {
+        "text": "实体文本",
+        "type": "PERSON|LOCATION|ORGANIZATION|CONCEPT",
+        "confidence": 0.9
+      }
+    ],
+    "attributes": [
+      {
+        "entity": "实体",
+        "attribute": "属性",
+        "value": "值",
+        "confidence": 0.8
+      }
+    ],
+    "relations": [
+      {
+        "subject": "主语实体",
+        "predicate": "关系",
+        "object": "宾语实体",
+        "confidence": 0.7
+      }
+    ]
+  }
+  ```
+
+# 关系分类提示词
+relation_classification: |
+  请对以下三元组中的关系进行分类：
+
+  主语：{subject}
+  谓语：{predicate}
+  宾语：{object}
+
+  请选择最合适的关系类型：
+  - is_a: 是一种（分类关系）
+  - part_of: 是...的一部分（整体-部分关系）
+  - located_in: 位于（位置关系）
+  - has_property: 具有...属性（属性关系）
+  - caused_by: 由...引起（因果关系）
+  - used_for: 用于（功能关系）
+  - related_to: 与...相关（一般关系）
+
+  请以JSON格式返回：
+  ```json
+  {
+    "relation_type": "关系类型",
+    "confidence": 0.8,
+    "explanation": "分类理由"
+  }
+  ```
+
+# 置信度评估提示词
+confidence_assessment: |
+  请评估以下知识三元组的置信度：
+
+  主语：{subject}
+  谓语：{predicate}
+  宾语：{object}
+  来源：{source}
+
+  评估标准：
+  1. 信息来源的可靠性
+  2. 表述的明确性
+  3. 事实的可验证性
+  4. 上下文的一致性
+
+  请返回0.0-1.0之间的置信度分数，并说明评估理由。
+
+  请以JSON格式返回：
+  ```json
+  {
+    "confidence": 0.8,
+    "reasoning": "评估理由",
+    "factors": {
+      "source_reliability": 0.9,
+      "statement_clarity": 0.8,
+      "verifiability": 0.7,
+      "context_consistency": 0.9
+    }
+  }
