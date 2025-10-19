@@ -224,9 +224,10 @@ class KnowledgeExtractor:
                 self.logger.info("方法1成功: 直接解析JSON")
             except json.JSONDecodeError as e:
                 self.logger.warning(f"方法1失败: {e}")
+                self.logger.debug(f"方法1失败时内容前100字符: {repr(content[:100])}")
                 
                 # 方法2: 提取```json代码块
-                json_match = re.search(r'```json\s*(.*?)\s*```', content, re.DOTALL)
+                json_match = re.search(r'```json\s*(.*?)\s*```', content, re.DOTALL | re.IGNORECASE)
                 if json_match and json_match.group(1):
                     try:
                         result = json.loads(json_match.group(1))
@@ -237,9 +238,9 @@ class KnowledgeExtractor:
                 else:
                     self.logger.warning("方法2失败: 未找到JSON代码块")
                 
-                # 方法3: 查找包含"triples"的JSON对象
+                # 方法3: 查找包含"triples"的JSON对象（改进正则表达式）
                 if not triples_data:
-                    json_match2 = re.search(r'\{[^}]*"triples"[^}]*\}', content, re.DOTALL)
+                    json_match2 = re.search(r'\{[^}]*"triples"\s*:\s*\[[^\]]*\][^}]*\}', content, re.DOTALL)
                     if json_match2 and json_match2.group(0):
                         try:
                             result = json.loads(json_match2.group(0))
@@ -270,7 +271,8 @@ class KnowledgeExtractor:
                 
                 # 如果所有方法都失败，记录完整响应用于调试
                 if not triples_data:
-                    self.logger.error(f"所有JSON解析方法都失败，原始响应: {repr(content)}")
+                    self.logger.error(f"所有JSON解析方法都失败，原始响应长度: {len(content)}")
+                    self.logger.debug(f"原始响应前500字符: {repr(content[:500])}")
                     return []
             
             # 转换为KnowledgeTriple对象
@@ -352,29 +354,68 @@ class KnowledgeExtractor:
             try:
                 result = json.loads(content)
                 filtered_data = result.get("filtered_triples", [])
+                self.logger.debug("过滤结果直接解析成功")
             except json.JSONDecodeError as e:
-                self.logger.error(f"过滤结果JSON解析失败: {e}, 原始内容: {content}")
-                json_match = re.search(r'```json\s*(.*?)\s*```', content, re.DOTALL)
+                self.logger.error(f"过滤结果JSON解析失败: {e}")
+                self.logger.debug(f"过滤失败时内容前100字符: {repr(content[:100])}")
+                
+                # 方法2: 提取```json代码块
+                json_match = re.search(r'```json\s*(.*?)\s*```', content, re.DOTALL | re.IGNORECASE)
                 if json_match and json_match.group(1):
                     try:
                         result = json.loads(json_match.group(1))
                         filtered_data = result.get("filtered_triples", [])
+                        self.logger.info("过滤结果方法2成功: 提取JSON代码块")
                     except json.JSONDecodeError as e2:
-                        self.logger.error(f"提取的过滤JSON也解析失败: {e2}")
+                        self.logger.error(f"过滤结果方法2失败: {e2}")
                         return triples
                 else:
-                    # 尝试查找任何JSON格式的数据
-                    json_match2 = re.search(r'\{.*"filtered_triples".*\}', content, re.DOTALL)
+                    self.logger.warning("过滤结果方法2失败: 未找到JSON代码块")
+                
+                # 方法3: 查找包含"filtered_triples"的JSON对象（改进正则表达式）
+                if not filtered_data:
+                    # 更宽松的正则表达式，匹配跨多行的JSON
+                    json_match2 = re.search(r'\{[^{}]*"filtered_triples"\s*:\s*\[[^\]]*\][^{}]*\}', content, re.DOTALL)
                     if json_match2 and json_match2.group(0):
                         try:
                             result = json.loads(json_match2.group(0))
                             filtered_data = result.get("filtered_triples", [])
+                            self.logger.info("过滤结果方法3成功: 查找filtered_triples对象")
                         except json.JSONDecodeError:
-                            self.logger.warning(f"无法解析过滤结果: {content}")
-                            return triples
+                            self.logger.warning("过滤结果方法3失败: 无法解析filtered_triples对象")
                     else:
-                        self.logger.warning(f"无法解析过滤结果: {content}")
-                        return triples
+                        self.logger.warning("过滤结果方法3失败: 未找到filtered_triples对象")
+                
+                # 方法4: 尝试手动构建JSON对象
+                if not filtered_data:
+                    try:
+                        # 查找filtered_triples数组的开始和结束
+                        filtered_start = content.find('"filtered_triples"')
+                        if filtered_start != -1:
+                            # 找到数组的开始 [
+                            array_start = content.find('[', filtered_start)
+                            if array_start != -1:
+                                # 找到数组的结束 ]
+                                bracket_count = 0
+                                array_end = array_start
+                                for i, char in enumerate(content[array_start:], array_start):
+                                    if char == '[':
+                                        bracket_count += 1
+                                    elif char == ']':
+                                        bracket_count -= 1
+                                        if bracket_count == 0:
+                                            array_end = i + 1
+                                            break
+                                
+                                if array_end > array_start:
+                                    array_content = content[array_start:array_end]
+                                    try:
+                                        filtered_data = json.loads(array_content)
+                                        self.logger.info("过滤结果方法4成功: 手动提取数组")
+                                    except json.JSONDecodeError:
+                                        self.logger.warning("过滤结果方法4失败: 无法解析数组")
+                    except Exception as e:
+                        self.logger.warning(f"过滤结果方法4失败: {e}")
             
             # 重建过滤后的三元组列表
             filtered_triples = []

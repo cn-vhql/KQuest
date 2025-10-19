@@ -17,6 +17,11 @@ class OpenAIConfig(BaseModel):
     timeout: int = Field(default=60, description="请求超时时间（秒）")
     max_retries: int = Field(default=3, description="最大重试次数")
     retry_delay: float = Field(default=1.0, description="重试延迟（秒）")
+    
+    def update_api_key(self, api_key: str) -> None:
+        """更新API Key"""
+        if api_key:
+            self.api_key = api_key
 
 
 class ExtractionConfig(BaseModel):
@@ -147,14 +152,10 @@ class Config(BaseSettings):
         return config
     
     def update_from_env(self) -> None:
-        """从环境变量更新配置"""
-        # OpenAI配置
+        """从环境变量更新配置（仅更新API Key，保持模型配置不变）"""
+        # 只更新API Key，不更新模型配置以确保始终使用配置文件中的设置
         if api_key := os.getenv("OPENAI_API_KEY"):
             self.openai.api_key = api_key
-        if base_url := os.getenv("OPENAI_BASE_URL"):
-            self.openai.base_url = base_url
-        if model := os.getenv("OPENAI_MODEL"):
-            self.openai.model = model
         
         # 其他环境变量
         if debug := os.getenv("DEBUG"):
@@ -238,34 +239,25 @@ _config: Optional[Config] = None
 
 
 def get_config() -> Config:
-    """获取全局配置实例"""
+    """获取全局配置实例，始终优先使用配置文件中的设置"""
     global _config
     if _config is None:
-        # 尝试从默认配置文件加载
-        config_paths = [
-            "config/config.yaml",
-            "config.yaml",
-            os.path.expanduser("~/.kquest/config.yaml"),
-        ]
+        # 强制从项目配置文件加载
+        project_config_path = "config/config.yaml"
         
-        for config_path in config_paths:
-            if Path(config_path).exists():
-                try:
-                    _config = Config.from_yaml(config_path)
-                    _config.update_from_env()
-                    break
-                except Exception:
-                    continue
+        if Path(project_config_path).exists():
+            try:
+                _config = Config.from_yaml(project_config_path)
+                # 只更新API Key，保持其他配置不变
+                api_key = os.getenv("OPENAI_API_KEY")
+                if api_key:
+                    _config.openai.update_api_key(api_key)
+                print(f"✓ 配置加载成功: {_config.project_name} v{_config.version}")
+            except Exception as e:
+                print(f"✗ 配置文件加载失败: {e}")
+                raise
         else:
-            # 如果没有找到配置文件，使用环境变量创建默认配置
-            _config = Config(
-                openai=OpenAIConfig(
-                    api_key=os.getenv("OPENAI_API_KEY", ""),
-                    base_url=os.getenv("OPENAI_BASE_URL"),
-                    model=os.getenv("OPENAI_MODEL", "gpt-3.5-turbo"),
-                )
-            )
-            _config.update_from_env()
+            raise FileNotFoundError(f"项目配置文件不存在: {project_config_path}")
     
     return _config
 

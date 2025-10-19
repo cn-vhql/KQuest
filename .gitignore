@@ -281,3 +281,4 @@ __pycache__/
 # uv.lock
 # poetry.lock
 # Pipfile.lock
+examples/a_info.md
