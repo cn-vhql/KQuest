@@ -292,3 +292,4 @@ test_hybrid_reasoning.py
 test_llm_driven_reasoning.py
 test_three_modes.py
 test_kg.json
+llm_driven_example.py
