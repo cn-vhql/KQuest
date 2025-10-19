@@ -40,11 +40,7 @@ git clone <repository-url>
 cd KQuest
 
 # 安装依赖
-pip install -e .
-
-# 或安装开发依赖
-pip install -e ".[dev]"
-```
+uv sync
 
 ### 2. 配置
 

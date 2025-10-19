@@ -41,6 +41,10 @@ class KnowledgeExtractor:
     
     def _load_prompts(self):
         """加载提示词模板"""
+        # 暂时强制使用默认模板以避免YAML解析问题
+        self.prompts = self._get_default_prompts()
+        return
+        
         try:
             prompts_path = Path(self.config.config_dir) / "prompts.yaml"
             if prompts_path.exists():
@@ -74,18 +78,18 @@ class KnowledgeExtractor:
 
 请以JSON格式返回结果：
 ```json
-{
+{{
   "triples": [
-    {
+    {{
       "subject": "主语",
       "predicate": "谓语/关系", 
       "object": "宾语",
       "triple_type": "entity_relation|entity_attribute|class_relation|instance_of",
       "confidence": 0.9,
       "explanation": "简要说明抽取理由"
-    }
+    }}
   ]
-}
+}}
 ```
 
 文本内容：
@@ -190,7 +194,7 @@ class KnowledgeExtractor:
             抽取的三元组列表
         """
         try:
-            prompt = self.prompts["extraction"].format(text=chunk.content)
+            prompt = self.prompts["extraction"].format(text=chunk.content.replace('{', '{{').replace('}', '}}'))
             
             response = await self.client.chat.completions.create(
                 model=self.config.openai.model,
@@ -200,23 +204,73 @@ class KnowledgeExtractor:
                 ],
                 temperature=self.config.openai.temperature,
                 max_tokens=self.config.openai.max_tokens,
+                extra_body={"enable_thinking": False}
             )
             
             content = response.choices[0].message.content
             self.logger.debug(f"LLM响应: {content}")
             
+            if not content:
+                self.logger.error("LLM返回空内容")
+                return []
+            
             # 解析JSON响应
+            triples_data = []
+            
+            # 方法1: 直接解析整个响应
             try:
                 result = json.loads(content)
                 triples_data = result.get("triples", [])
-            except json.JSONDecodeError:
-                # 尝试提取JSON部分
+                self.logger.info("方法1成功: 直接解析JSON")
+            except json.JSONDecodeError as e:
+                self.logger.warning(f"方法1失败: {e}")
+                
+                # 方法2: 提取```json代码块
                 json_match = re.search(r'```json\s*(.*?)\s*```', content, re.DOTALL)
-                if json_match:
-                    result = json.loads(json_match.group(1))
-                    triples_data = result.get("triples", [])
+                if json_match and json_match.group(1):
+                    try:
+                        result = json.loads(json_match.group(1))
+                        triples_data = result.get("triples", [])
+                        self.logger.info("方法2成功: 提取JSON代码块")
+                    except json.JSONDecodeError as e2:
+                        self.logger.warning(f"方法2失败: {e2}")
                 else:
-                    self.logger.error(f"无法解析LLM响应: {content}")
+                    self.logger.warning("方法2失败: 未找到JSON代码块")
+                
+                # 方法3: 查找包含"triples"的JSON对象
+                if not triples_data:
+                    json_match2 = re.search(r'\{[^}]*"triples"[^}]*\}', content, re.DOTALL)
+                    if json_match2 and json_match2.group(0):
+                        try:
+                            result = json.loads(json_match2.group(0))
+                            triples_data = result.get("triples", [])
+                            self.logger.info("方法3成功: 查找triples对象")
+                        except json.JSONDecodeError:
+                            self.logger.warning("方法3失败: 无法解析triples对象")
+                    else:
+                        self.logger.warning("方法3失败: 未找到triples对象")
+                
+                # 方法4: 尝试修复常见的JSON格式问题
+                if not triples_data:
+                    try:
+                        # 移除可能的前后缀
+                        cleaned_content = content.strip()
+                        if cleaned_content.startswith('```json'):
+                            cleaned_content = cleaned_content[7:]
+                        if cleaned_content.endswith('```'):
+                            cleaned_content = cleaned_content[:-3]
+                        cleaned_content = cleaned_content.strip()
+                        
+                        # 尝试解析
+                        result = json.loads(cleaned_content)
+                        triples_data = result.get("triples", [])
+                        self.logger.info("方法4成功: 清理后解析")
+                    except json.JSONDecodeError:
+                        self.logger.warning("方法4失败: 清理后仍无法解析")
+                
+                # 如果所有方法都失败，记录完整响应用于调试
+                if not triples_data:
+                    self.logger.error(f"所有JSON解析方法都失败，原始响应: {repr(content)}")
                     return []
             
             # 转换为KnowledgeTriple对象
@@ -245,6 +299,8 @@ class KnowledgeExtractor:
             
         except Exception as e:
             self.logger.error(f"从文档块抽取三元组失败: {e}")
+            import traceback
+            self.logger.error(f"完整错误信息: {traceback.format_exc()}")
             return []
     
     async def _filter_triples(self, triples: List[KnowledgeTriple]) -> List[KnowledgeTriple]:
@@ -288,18 +344,37 @@ class KnowledgeExtractor:
             
             content = response.choices[0].message.content
             
+            if not content:
+                self.logger.error("过滤LLM返回空内容")
+                return triples
+            
             # 解析过滤结果
             try:
                 result = json.loads(content)
                 filtered_data = result.get("filtered_triples", [])
-            except json.JSONDecodeError:
+            except json.JSONDecodeError as e:
+                self.logger.error(f"过滤结果JSON解析失败: {e}, 原始内容: {content}")
                 json_match = re.search(r'```json\s*(.*?)\s*```', content, re.DOTALL)
-                if json_match:
-                    result = json.loads(json_match.group(1))
-                    filtered_data = result.get("filtered_triples", [])
+                if json_match and json_match.group(1):
+                    try:
+                        result = json.loads(json_match.group(1))
+                        filtered_data = result.get("filtered_triples", [])
+                    except json.JSONDecodeError as e2:
+                        self.logger.error(f"提取的过滤JSON也解析失败: {e2}")
+                        return triples
                 else:
-                    self.logger.warning(f"无法解析过滤结果: {content}")
-                    return triples
+                    # 尝试查找任何JSON格式的数据
+                    json_match2 = re.search(r'\{.*"filtered_triples".*\}', content, re.DOTALL)
+                    if json_match2 and json_match2.group(0):
+                        try:
+                            result = json.loads(json_match2.group(0))
+                            filtered_data = result.get("filtered_triples", [])
+                        except json.JSONDecodeError:
+                            self.logger.warning(f"无法解析过滤结果: {content}")
+                            return triples
+                    else:
+                        self.logger.warning(f"无法解析过滤结果: {content}")
+                        return triples
             
             # 重建过滤后的三元组列表
             filtered_triples = []
@@ -374,7 +449,7 @@ class KnowledgeExtractor:
                 for j, result in enumerate(batch_results):
                     if isinstance(result, Exception):
                         self.logger.error(f"处理文档块{batch_chunks[j].chunk_id}失败: {result}")
-                    else:
+                    elif isinstance(result, list):
                         all_triples.extend(result)
                 
                 # 添加延迟以避免API限制

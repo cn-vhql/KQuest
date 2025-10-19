@@ -38,7 +38,12 @@ class KnowledgeReasoner:
     
     def _load_prompts(self):
         """加载提示词模板"""
+        # 暂时强制使用默认模板以避免YAML解析问题
+        self.prompts = self._get_default_prompts()
+        return
+        
         try:
+            from pathlib import Path
             prompts_path = Path(self.config.config_dir) / "prompts.yaml"
             if prompts_path.exists():
                 import yaml
@@ -68,7 +73,7 @@ class KnowledgeReasoner:
 
 请以JSON格式返回结果：
 ```json
-{
+{{
   "answer": "详细回答",
   "confidence": 0.9,
   "reasoning_steps": [
@@ -76,14 +81,14 @@ class KnowledgeReasoner:
     "推理步骤2"
   ],
   "source_triples": [
-    {
+    {{
       "subject": "主语",
       "predicate": "谓语",
       "object": "宾语"
-    }
+    }}
   ],
   "additional_info": "补充信息"
-}
+}}
 ```
 
 请开始推理：""",
@@ -271,11 +276,12 @@ class KnowledgeReasoner:
             response = await self.client.chat.completions.create(
                 model=self.config.reasoning.reasoning_model,
                 messages=[
-                    {"role": "system", "content": "你是一个语义相似度评估专家。"},
+                    {"role": "system", "content": "你是一个专业的知识推理专家。"},
                     {"role": "user", "content": prompt}
                 ],
-                temperature=0.1,
-                max_tokens=200,
+                temperature=self.config.openai.temperature,
+                max_tokens=self.config.openai.max_tokens,
+                extra_body={"enable_thinking": False}
             )
             
             content = response.choices[0].message.content
@@ -331,28 +337,84 @@ class KnowledgeReasoner:
                 ],
                 temperature=self.config.openai.temperature,
                 max_tokens=self.config.openai.max_tokens,
+                extra_body={"enable_thinking": False}
             )
             
             content = response.choices[0].message.content
             self.logger.debug(f"推理响应: {content}")
             
+            if not content:
+                self.logger.error("推理LLM返回空内容")
+                return {
+                    "answer": "推理失败：模型返回空响应",
+                    "confidence": 0.0,
+                    "reasoning_steps": [],
+                    "source_triples": [],
+                    "additional_info": ""
+                }
+            
             # 解析JSON响应
+            result = {}
+            
+            # 方法1: 直接解析整个响应
             try:
                 result = json.loads(content)
-                return result
-            except json.JSONDecodeError:
+                self.logger.info("推理方法1成功: 直接解析JSON")
+            except json.JSONDecodeError as e:
+                self.logger.warning(f"推理方法1失败: {e}")
+                
+                # 方法2: 提取```json代码块
                 json_match = re.search(r'```json\s*(.*?)\s*```', content, re.DOTALL)
-                if json_match:
-                    return json.loads(json_match.group(1))
+                if json_match and json_match.group(1):
+                    try:
+                        result = json.loads(json_match.group(1))
+                        self.logger.info("推理方法2成功: 提取JSON代码块")
+                    except json.JSONDecodeError as e2:
+                        self.logger.warning(f"推理方法2失败: {e2}")
                 else:
-                    # 如果无法解析JSON，尝试提取文本回答
+                    self.logger.warning("推理方法2失败: 未找到JSON代码块")
+                
+                # 方法3: 查找包含"answer"的JSON对象
+                if not result:
+                    json_match2 = re.search(r'\{[^}]*"answer"[^}]*\}', content, re.DOTALL)
+                    if json_match2 and json_match2.group(0):
+                        try:
+                            result = json.loads(json_match2.group(0))
+                            self.logger.info("推理方法3成功: 查找answer对象")
+                        except json.JSONDecodeError:
+                            self.logger.warning("推理方法3失败: 无法解析answer对象")
+                    else:
+                        self.logger.warning("推理方法3失败: 未找到answer对象")
+                
+                # 方法4: 尝试修复常见的JSON格式问题
+                if not result:
+                    try:
+                        # 移除可能的前后缀
+                        cleaned_content = content.strip()
+                        if cleaned_content.startswith('```json'):
+                            cleaned_content = cleaned_content[7:]
+                        if cleaned_content.endswith('```'):
+                            cleaned_content = cleaned_content[:-3]
+                        cleaned_content = cleaned_content.strip()
+                        
+                        # 尝试解析
+                        result = json.loads(cleaned_content)
+                        self.logger.info("推理方法4成功: 清理后解析")
+                    except json.JSONDecodeError:
+                        self.logger.warning("推理方法4失败: 清理后仍无法解析")
+                
+                # 如果所有方法都失败，返回基本结构
+                if not result:
+                    self.logger.error(f"推理所有JSON解析方法都失败，原始响应: {repr(content)}")
                     return {
-                        "answer": content,
-                        "confidence": 0.5,
-                        "reasoning_steps": ["无法解析结构化响应"],
+                        "answer": content if content else "推理失败：无法解析响应",
+                        "confidence": 0.3,
+                        "reasoning_steps": ["JSON解析失败"],
                         "source_triples": [],
                         "additional_info": ""
                     }
+            
+            return result
                     
         except Exception as e:
             self.logger.error(f"执行推理失败: {e}")
