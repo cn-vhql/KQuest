@@ -288,3 +288,7 @@ test_simple.py
 test_graph_reasoning_simple.py
 tests/test_graph_reasoner.py
 tests/test_reasoning_integration.py
+test_hybrid_reasoning.py
+test_llm_driven_reasoning.py
+test_three_modes.py
+test_kg.json

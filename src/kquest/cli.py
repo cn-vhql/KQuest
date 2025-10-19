@@ -173,13 +173,29 @@ def extract(config: Config, input_file: str, output_file: str, format: Optional[
 @click.option('--question', '-q', help='要查询的问题')
 @click.option('--interactive', '-i', is_flag=True, help='交互式问答模式')
 @click.option('--max-results', type=int, default=5, help='最大显示结果数')
+@click.option('--mode', type=click.Choice(['graph', 'hybrid', 'llm']), default='graph', help='推理模式：graph(纯图算法), hybrid(混合), llm(LLM驱动)')
 @click.pass_obj
-def query(config: Config, kg_file: str, question: Optional[str], interactive: bool, max_results: int):
+def query(config: Config, kg_file: str, question: Optional[str], interactive: bool, max_results: int, mode: str):
     """基于知识图谱回答问题"""
-    
+
     # 加载知识图谱
     storage = KnowledgeStorage(config)
-    reasoner = KnowledgeReasoner(config)
+    # 根据模式创建推理器
+    reasoning_mode_map = {
+        'graph': 'graph',
+        'hybrid': 'hybrid',
+        'llm': 'llm_driven'
+    }
+    reasoning_mode = reasoning_mode_map.get(mode, 'graph')
+    reasoner = KnowledgeReasoner(config, reasoning_mode=reasoning_mode)
+
+    # 显示推理模式信息
+    mode_names = {
+        'graph': '纯图算法',
+        'hybrid': '混合推理（LLM + 图算法）',
+        'llm': 'LLM驱动（大模型主体 + 图谱知识库）'
+    }
+    console.print(f"[blue]推理模式:[/blue] {mode_names.get(mode, '未知')}")
     
     console.print(f"[blue]加载知识图谱:[/blue] {kg_file}")
     
@@ -234,22 +250,64 @@ def _process_question(reasoner: KnowledgeReasoner, knowledge_graph, question: st
     """处理单个问题"""
     with console.status("[bold green]正在思考...[/bold green]"):
         result = reasoner.query_sync(question, knowledge_graph)
-    
+
     # 显示结果
     console.print(f"\n[bold]问题:[/bold] {result.question}")
     console.print(f"[bold]回答:[/bold] {result.answer}")
     console.print(f"[bold]置信度:[/bold] {result.confidence:.2f}")
-    
+
+    # 显示推理方法
+    method = result.metadata.get('method', '未知')
+    console.print(f"[bold]推理方法:[/bold] {method}")
+
+    # 显示推理路径
     if result.reasoning_path:
         console.print(f"\n[bold]推理过程:[/bold]")
         for i, step in enumerate(result.reasoning_path, 1):
             console.print(f"  {i}. {step}")
-    
+
+    # 显示推理模式的特殊信息
+    method = result.metadata.get('method', '未知')
+
+    if 'LLM驱动' in method:
+        # LLM驱动推理的特殊信息
+        console.print(f"[bold]🧠 LLM驱动推理:[/bold] 大模型主体，图谱知识库")
+
+        sources = result.metadata.get('sources', [])
+        if sources:
+            console.print(f"[bold]📚 信息来源:[/bold] {', '.join(sources[:3])}")
+
+        if result.metadata.get('verification_needed'):
+            console.print(f"[bold]⚠️ 建议验证:[/bold] 回答可能需要额外验证")
+
+    elif '混合推理' in method:
+        # 混合推理的特殊信息
+        if result.metadata.get('has_llm_enhancement'):
+            console.print(f"[bold]🧠 LLM增强:[/bold] 回答经过大模型语义理解和优化")
+
+        if result.metadata.get('semantic_insights_count', 0) > 0:
+            console.print(f"[bold]💡 语义洞察:[/bold] 发现 {result.metadata.get('semantic_insights_count')} 个语义洞察")
+
+        if result.metadata.get('graph_paths_count', 0) > 0:
+            console.print(f"[bold]🔗 图路径:[/bold] 发现 {result.metadata.get('graph_paths_count')} 条推理路径")
+
+    else:
+        # 纯图算法推理
+        console.print(f"[bold]🔗 图算法推理:[/bold] 基于传统图结构分析")
+
+    # 显示来源三元组
     if result.source_triples:
         console.print(f"\n[bold]来源三元组:[/bold]")
-        for i, triple in enumerate(result.source_triples, 1):
+        for i, triple in enumerate(result.source_triples[:5], 1):  # 限制显示数量
             console.print(f"  {i}. {triple}")
-    
+        if len(result.source_triples) > 5:
+            console.print(f"  ... 还有 {len(result.source_triples) - 5} 个支持三元组")
+
+    # 显示处理时间
+    processing_time = result.metadata.get('processing_time', 0)
+    if processing_time > 0:
+        console.print(f"\n[dim]处理时间: {processing_time:.2f}秒[/dim]")
+
     console.print("\n" + "="*50 + "\n")
 
 

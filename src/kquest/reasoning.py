@@ -15,23 +15,36 @@ from .models import (
     TripleType,
 )
 from .graph_reasoner import GraphReasoner, ReasoningResult, PathResult, CentralityResult
+from .hybrid_reasoner import HybridReasoner, HybridReasoningResult
+from .llm_driven_reasoner import LLMDrivenReasoner, LLMReasoningResult
 
 
 class KnowledgeReasoner:
     """基于传统图算法的知识推理器"""
 
-    def __init__(self, config=None, knowledge_graph: Optional[KnowledgeGraph] = None):
+    def __init__(self, config=None, knowledge_graph: Optional[KnowledgeGraph] = None,
+                 reasoning_mode: str = "graph"):
         """初始化知识推理器
 
         Args:
             config: 配置对象，如果为None则使用全局配置
             knowledge_graph: 知识图谱对象
+            reasoning_mode: 推理模式 ("graph", "hybrid", "llm_driven")
         """
         self.config = config or get_config()
         self.logger = logging.getLogger(__name__)
+        self.reasoning_mode = reasoning_mode
 
-        # 初始化图推理引擎
-        self.graph_reasoner = GraphReasoner(knowledge_graph)
+        # 初始化推理引擎
+        if reasoning_mode == "llm_driven":
+            self.graph_reasoner = LLMDrivenReasoner(knowledge_graph)
+            self.logger.info("使用LLM驱动推理引擎（大模型主体 + 图谱知识库）")
+        elif reasoning_mode == "hybrid":
+            self.graph_reasoner = HybridReasoner(knowledge_graph)
+            self.logger.info("使用混合推理引擎（LLM + 图算法）")
+        else:  # graph
+            self.graph_reasoner = GraphReasoner(knowledge_graph)
+            self.logger.info("使用纯图算法推理引擎")
     
     def update_knowledge_graph(self, knowledge_graph: KnowledgeGraph) -> None:
         """更新知识图谱
@@ -217,7 +230,7 @@ class KnowledgeReasoner:
         question: str,
         knowledge_graph: KnowledgeGraph
     ) -> QueryResult:
-        """基于图算法查询知识图谱并回答问题
+        """查询知识图谱并回答问题（支持多种推理模式）
 
         Args:
             question: 用户问题
@@ -229,63 +242,20 @@ class KnowledgeReasoner:
         start_time = time.time()
 
         try:
-            self.logger.info(f"开始图查询问题: {question}")
-
-            # 更新图推理引擎的知识图谱
-            self.graph_reasoner.update_knowledge_graph(knowledge_graph)
-
-            # 查找相关三元组
-            relevant_triples = self._find_relevant_triples(question, knowledge_graph)
-
-            if not relevant_triples:
-                self.logger.warning("未找到相关的三元组")
-                return QueryResult(
-                    question=question,
-                    answer="抱歉，在知识图谱中没有找到与您的问题相关的信息。",
-                    confidence=0.0,
-                    source_triples=[],
-                    reasoning_path=["未找到相关信息"],
-                    metadata={"processing_time": time.time() - start_time}
-                )
-
-            self.logger.info(f"找到{len(relevant_triples)}个相关三元组")
-
-            # 执行图推理
-            reasoning_result = self._perform_reasoning_graph(question, relevant_triples)
-
-            # 构建查询结果
-            query_result = QueryResult(
-                question=question,
-                answer=reasoning_result.get("answer", "无法生成回答"),
-                confidence=float(reasoning_result.get("confidence", 0.5)),
-                reasoning_path=reasoning_result.get("reasoning_steps", []),
-                metadata={
-                    "processing_time": time.time() - start_time,
-                    "relevant_triples_count": len(relevant_triples),
-                    "additional_info": reasoning_result.get("additional_info", ""),
-                    "method": "graph_algorithm"
-                }
-            )
-
-            # 添加来源三元组
-            for triple_data in reasoning_result.get("source_triples", []):
-                for triple in relevant_triples:
-                    if (triple.subject == triple_data.get("subject") and
-                        triple.predicate == triple_data.get("predicate") and
-                        triple.object == triple_data.get("object")):
-                        query_result.add_source_triple(triple)
-                        break
-
-            self.logger.info(f"图查询完成，置信度: {query_result.confidence}")
-            return query_result
+            if self.reasoning_mode == "llm_driven":
+                return self._llm_driven_query(question, knowledge_graph, start_time)
+            elif self.reasoning_mode == "hybrid":
+                return self._hybrid_query(question, knowledge_graph, start_time)
+            else:
+                return self._graph_query(question, knowledge_graph, start_time)
 
         except Exception as e:
-            error_msg = f"图查询失败: {e}"
+            error_msg = f"查询失败: {e}"
             self.logger.error(error_msg)
 
             return QueryResult(
                 question=question,
-                answer=f"图查询过程中出现错误: {e}",
+                answer=f"查询过程中出现错误: {e}",
                 confidence=0.0,
                 source_triples=[],
                 reasoning_path=["查询失败"],
@@ -294,7 +264,174 @@ class KnowledgeReasoner:
                     "error": str(e)
                 }
             )
-    
+
+    def _graph_query(self, question: str, knowledge_graph: KnowledgeGraph, start_time: float) -> QueryResult:
+        """纯图算法查询"""
+        self.logger.info(f"开始图查询问题: {question}")
+
+        # 更新图推理引擎的知识图谱
+        self.graph_reasoner.update_knowledge_graph(knowledge_graph)
+
+        # 查找相关三元组
+        relevant_triples = self._find_relevant_triples(question, knowledge_graph)
+
+        if not relevant_triples:
+            self.logger.warning("未找到相关的三元组")
+            return QueryResult(
+                question=question,
+                answer="抱歉，在知识图谱中没有找到与您的问题相关的信息。",
+                confidence=0.0,
+                source_triples=[],
+                reasoning_path=["未找到相关信息"],
+                metadata={"processing_time": time.time() - start_time, "method": "graph_algorithm"}
+            )
+
+        self.logger.info(f"找到{len(relevant_triples)}个相关三元组")
+
+        # 执行图推理
+        reasoning_result = self._perform_reasoning_graph(question, relevant_triples)
+
+        # 构建查询结果
+        query_result = QueryResult(
+            question=question,
+            answer=reasoning_result.get("answer", "无法生成回答"),
+            confidence=float(reasoning_result.get("confidence", 0.5)),
+            reasoning_path=reasoning_result.get("reasoning_steps", []),
+            metadata={
+                "processing_time": time.time() - start_time,
+                "relevant_triples_count": len(relevant_triples),
+                "additional_info": reasoning_result.get("additional_info", ""),
+                "method": "graph_algorithm"
+            }
+        )
+
+        # 添加来源三元组
+        for triple_data in reasoning_result.get("source_triples", []):
+            for triple in relevant_triples:
+                if (triple.subject == triple_data.get("subject") and
+                    triple.predicate == triple_data.get("predicate") and
+                    triple.object == triple_data.get("object")):
+                    query_result.add_source_triple(triple)
+                    break
+
+        self.logger.info(f"图查询完成，置信度: {query_result.confidence}")
+        return query_result
+
+    def _hybrid_query(self, question: str, knowledge_graph: KnowledgeGraph, start_time: float) -> QueryResult:
+        """混合推理查询"""
+        self.logger.info(f"开始混合推理查询: {question}")
+
+        try:
+            # 执行混合推理 - 正确处理异步调用
+            import asyncio
+            try:
+                loop = asyncio.get_event_loop()
+                if loop.is_running():
+                    # 如果已经在事件循环中，创建任务
+                    import concurrent.futures
+                    with concurrent.futures.ThreadPoolExecutor() as executor:
+                        future = executor.submit(asyncio.run, self.graph_reasoner.query(question, knowledge_graph))
+                        hybrid_result = future.result(timeout=30)
+                else:
+                    # 如果没有运行的事件循环，直接运行
+                    hybrid_result = asyncio.run(self.graph_reasoner.query(question, knowledge_graph))
+            except RuntimeError:
+                # 降级处理：使用同步方法
+                hybrid_result = self.graph_reasoner.query_sync(question, knowledge_graph)
+
+            # 构建查询结果
+            query_result = QueryResult(
+                question=question,
+                answer=hybrid_result.answer,
+                confidence=hybrid_result.confidence,
+                reasoning_path=hybrid_result.graph_paths if hybrid_result.graph_paths else ["混合推理路径"],
+                metadata={
+                    "processing_time": hybrid_result.processing_time,
+                    "method": hybrid_result.reasoning_method,
+                    "graph_paths_count": len(hybrid_result.graph_paths),
+                    "semantic_insights_count": len(hybrid_result.semantic_insights),
+                    "has_llm_enhancement": hybrid_result.llm_enhancement is not None
+                }
+            )
+
+            # 添加来源三元组
+            for triple in hybrid_result.supporting_triples:
+                query_result.add_source_triple(triple)
+
+            self.logger.info(f"混合推理完成，置信度: {query_result.confidence}")
+            return query_result
+
+        except Exception as e:
+            self.logger.error(f"混合推理失败: {e}")
+            return QueryResult(
+                question=question,
+                answer=f"混合推理过程中出现错误: {e}",
+                confidence=0.0,
+                reasoning_path=["混合推理失败"],
+                metadata={
+                    "processing_time": time.time() - start_time,
+                    "error": str(e),
+                    "method": "hybrid_reasoning_error"
+                }
+            )
+
+    def _llm_driven_query(self, question: str, knowledge_graph: KnowledgeGraph, start_time: float) -> QueryResult:
+        """LLM驱动查询"""
+        self.logger.info(f"开始LLM驱动查询: {question}")
+
+        try:
+            # 执行LLM驱动推理 - 正确处理异步调用
+            import asyncio
+            try:
+                loop = asyncio.get_event_loop()
+                if loop.is_running():
+                    # 如果已经在事件循环中，创建任务
+                    import concurrent.futures
+                    with concurrent.futures.ThreadPoolExecutor() as executor:
+                        future = executor.submit(asyncio.run, self.graph_reasoner.query(question, knowledge_graph))
+                        llm_result = future.result(timeout=30)
+                else:
+                    # 如果没有运行的事件循环，直接运行
+                    llm_result = asyncio.run(self.graph_reasoner.query(question, knowledge_graph))
+            except RuntimeError:
+                # 降级处理：使用同步方法
+                llm_result = self.graph_reasoner.query_sync(question, knowledge_graph)
+
+            # 构建查询结果
+            query_result = QueryResult(
+                question=question,
+                answer=llm_result.answer,
+                confidence=llm_result.confidence,
+                reasoning_path=llm_result.reasoning_process,
+                metadata={
+                    "processing_time": llm_result.processing_time,
+                    "method": "LLM驱动推理（大模型主体 + 图谱知识库）",
+                    "sources": llm_result.sources,
+                    "verification_needed": llm_result.verification_needed
+                }
+            )
+
+            # 添加来源三元组
+            # 注意：LLM驱动推理器的结果需要映射到三元组
+            # 这里我们暂时跳过，因为LLM推理器返回的不是直接的三元组
+
+            self.logger.info(f"LLM驱动查询完成，置信度: {query_result.confidence}")
+            return query_result
+
+        except Exception as e:
+            self.logger.error(f"LLM驱动推理失败: {e}")
+            return QueryResult(
+                question=question,
+                answer=f"LLM驱动推理过程中出现错误: {e}",
+                confidence=0.0,
+                reasoning_path=["LLM驱动推理失败"],
+                metadata={
+                    "processing_time": time.time() - start_time,
+                    "error": str(e),
+                    "method": "llm_driven_reasoning_error"
+                }
+            )
+
     def infer_new_knowledge(self, knowledge_graph: KnowledgeGraph) -> List[KnowledgeTriple]:
         """基于图算法推理新知识
 
