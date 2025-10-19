@@ -285,3 +285,6 @@ examples/a_info.md
 CLAUDE.md
 test_config.py
 test_simple.py
+test_graph_reasoning_simple.py
+tests/test_graph_reasoner.py
+tests/test_reasoning_integration.py

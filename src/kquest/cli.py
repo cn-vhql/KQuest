@@ -272,37 +272,72 @@ def info(config: Config, kg_file: str, format: str):
         stats = reasoner.get_graph_statistics(knowledge_graph)
         
         if format == 'table':
-            # 表格格式显示
+            # 表格格式显示 - 适配新的图分析结构
             table = Table(title="知识图谱统计信息")
             table.add_column("指标", style="cyan")
             table.add_column("数值", style="green")
-            
-            table.add_row("总三元组数", str(stats['total_triples']))
-            table.add_row("唯一实体数", str(stats['total_entities']))
-            table.add_row("连通实体数", str(stats['connected_entities']))
-            table.add_row("连通率", f"{stats['connectivity_ratio']:.2%}")
-            table.add_row("平均每实体三元组数", f"{stats['avg_triples_per_entity']:.2f}")
-            table.add_row("唯一主语数", str(stats['unique_subjects']))
-            table.add_row("唯一宾语数", str(stats['unique_objects']))
-            table.add_row("唯一谓语数", str(stats['unique_predicates']))
-            
+
+            # 基础统计
+            basic_stats = stats.get('基础统计', {})
+            table.add_row("总三元组数", str(basic_stats.get('total_triples', 'N/A')))
+            table.add_row("唯一实体数", str(basic_stats.get('total_entities', 'N/A')))
+            table.add_row("连通实体数", str(basic_stats.get('connected_entities', 'N/A')))
+            table.add_row("连通率", f"{basic_stats.get('connectivity_ratio', 0):.2%}")
+            table.add_row("平均每实体三元组数", f"{basic_stats.get('avg_triples_per_entity', 0):.2f}")
+            table.add_row("唯一主语数", str(basic_stats.get('unique_subjects', 'N/A')))
+            table.add_row("唯一宾语数", str(basic_stats.get('unique_objects', 'N/A')))
+            table.add_row("唯一谓语数", str(basic_stats.get('unique_predicates', 'N/A')))
+
             console.print(table)
-            
-            # 显示三元组类型分布
-            console.print("\n[bold]三元组类型分布:[/bold]")
-            for triple_type, count in stats['triple_types'].items():
-                console.print(f"  • {triple_type}: {count}")
-            
-            # 显示置信度分布
-            console.print("\n[bold]置信度分布:[/bold]")
-            for level, count in stats['confidence_distribution'].items():
-                console.print(f"  • {level}: {count}")
+
+            # 显示图结构分析
+            graph_analysis = stats.get('图结构分析', {})
+            if graph_analysis:
+                console.print("\n[bold]图结构分析:[/bold]")
+                basic_graph_stats = graph_analysis.get('基本统计', {})
+                console.print(f"  • 节点数: {basic_graph_stats.get('节点数', 'N/A')}")
+                console.print(f"  • 边数: {basic_graph_stats.get('边数', 'N/A')}")
+                console.print(f"  • 图密度: {basic_graph_stats.get('密度', 0):.4f}")
+
+                connectivity = graph_analysis.get('连通性', {})
+                console.print(f"  • 强连通: {'是' if connectivity.get('强连通', False) else '否'}")
+                console.print(f"  • 弱连通: {'是' if connectivity.get('弱连通', False) else '否'}")
+                console.print(f"  • 强连通组件数: {connectivity.get('强连通组件数', 'N/A')}")
+                console.print(f"  • 弱连通组件数: {connectivity.get('弱连通组件数', 'N/A')}")
+
+            # 显示分析方法
+            console.print(f"\n[bold]分析方法:[/bold] {stats.get('分析方法', 'unknown')}")
             
             # 显示最常见的谓语
-            if stats['most_common_predicates']:
+            most_common_predicates = basic_stats.get('most_common_predicates', [])
+            if most_common_predicates:
                 console.print("\n[bold]最常见的谓语:[/bold]")
-                for predicate, count in stats['most_common_predicates']:
+                for predicate, count in most_common_predicates:
                     console.print(f"  • {predicate}: {count}")
+
+            # 显示最常见的实体
+            most_common_subjects = basic_stats.get('most_common_subjects', [])
+            if most_common_subjects:
+                console.print("\n[bold]最常见的实体:[/bold]")
+                for subject, count in most_common_subjects[:5]:
+                    console.print(f"  • {subject}: {count}")
+
+            # 显示中心性排名
+            centralities = graph_analysis.get('中心性排名', {})
+            if centralities:
+                console.print("\n[bold]中心性排名:[/bold]")
+
+                degree_central = centralities.get('度中心性前5', [])
+                if degree_central:
+                    console.print("  度中心性前3:")
+                    for i, central in enumerate(degree_central[:3]):
+                        console.print(f"    {i+1}. {central.entity}: {central.centrality_score:.4f}")
+
+                pagerank_central = centralities.get('PageRank前5', [])
+                if pagerank_central:
+                    console.print("  PageRank前3:")
+                    for i, central in enumerate(pagerank_central[:3]):
+                        console.print(f"    {i+1}. {central.entity}: {central.centrality_score:.4f}")
         
         elif format == 'json':
             import json
@@ -310,23 +345,24 @@ def info(config: Config, kg_file: str, format: str):
         
         elif format == 'summary':
             # 简要摘要
+            basic_stats = stats.get('基础统计', {})
+            graph_analysis = stats.get('图结构分析', {})
+
             panel_content = f"""
-总三元组数: {stats['total_triples']}
-唯一实体数: {stats['total_entities']}
-连通率: {stats['connectivity_ratio']:.2%}
-平均每实体三元组数: {stats['avg_triples_per_entity']:.2f}
+总三元组数: {basic_stats.get('total_triples', 'N/A')}
+唯一实体数: {basic_stats.get('total_entities', 'N/A')}
+连通率: {basic_stats.get('connectivity_ratio', 0):.2%}
+平均每实体三元组数: {basic_stats.get('avg_triples_per_entity', 0):.2f}
 
-三元组类型分布:
-{chr(10).join(f'  • {k}: {v}' for k, v in stats['triple_types'].items())}
-
-置信度分布:
-{chr(10).join(f'  • {k}: {v}' for k, v in stats['confidence_distribution'].items())}
+分析方法: {stats.get('分析方法', 'unknown')}
+图密度: {graph_analysis.get('基本统计', {}).get('密度', 0):.4f}
+强连通组件数: {graph_analysis.get('连通性', {}).get('强连通组件数', 'N/A')}
             """.strip()
-            
+
             console.print(Panel(panel_content, title="知识图谱摘要", border_style="blue"))
         
     except Exception as e:
-        console.print(f"[red]✗[/red] 获取信息失败: {e}[/red]")
+        console.print(f"[red]✗ 获取信息失败: {e}[/red]")
         if config.debug:
             console.print_exception()
         sys.exit(1)
