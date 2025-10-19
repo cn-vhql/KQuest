@@ -282,3 +282,6 @@ __pycache__/
 # poetry.lock
 # Pipfile.lock
 examples/a_info.md
+CLAUDE.md
+test_config.py
+test_simple.py

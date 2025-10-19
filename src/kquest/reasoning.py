@@ -532,6 +532,7 @@ class KnowledgeReasoner:
                 ],
                 temperature=0.2,
                 max_tokens=self.config.openai.max_tokens,
+                extra_body={"enable_thinking": False}
             )
             
             content = response.choices[0].message.content

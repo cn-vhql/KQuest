@@ -4,7 +4,6 @@ import os
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Union
 from pydantic import BaseModel, Field, validator
-from pydantic_settings import BaseSettings
 
 
 class OpenAIConfig(BaseModel):
@@ -72,31 +71,25 @@ class LoggingConfig(BaseModel):
     console_output: bool = Field(default=True, description="是否输出到控制台")
 
 
-class Config(BaseSettings):
+class Config(BaseModel):
     """主配置类"""
-    
+
     # 基础配置
     project_name: str = Field(default="KQuest", description="项目名称")
     version: str = Field(default="0.1.0", description="版本号")
     debug: bool = Field(default=False, description="调试模式")
-    
+
     # 子配置
     openai: OpenAIConfig = Field(..., description="OpenAI配置")
     extraction: ExtractionConfig = Field(default_factory=ExtractionConfig, description="抽取配置")
     reasoning: ReasoningConfig = Field(default_factory=ReasoningConfig, description="推理配置")
     storage: StorageConfig = Field(default_factory=StorageConfig, description="存储配置")
     logging: LoggingConfig = Field(default_factory=LoggingConfig, description="日志配置")
-    
+
     # 路径配置
     config_dir: str = Field(default="config", description="配置文件目录")
     data_dir: str = Field(default="data", description="数据目录")
     temp_dir: str = Field(default="temp", description="临时目录")
-    
-    class Config:
-        env_file = ".env"
-        env_file_encoding = "utf-8"
-        env_nested_delimiter = "__"
-        case_sensitive = False
         
     def __init__(self, **data):
         super().__init__(**data)
@@ -145,10 +138,13 @@ class Config(BaseSettings):
             "timeout": self.openai.timeout,
             "max_retries": self.openai.max_retries,
         }
-        
+
         if self.openai.base_url:
             config["base_url"] = self.openai.base_url
-            
+
+        # 明确设置 default_headers 以避免任何默认的 extra_body
+        config["default_headers"] = {}
+
         return config
     
     def update_from_env(self) -> None:
@@ -244,21 +240,17 @@ def get_config() -> Config:
     if _config is None:
         # 强制从项目配置文件加载
         project_config_path = "config/config.yaml"
-        
+
         if Path(project_config_path).exists():
             try:
                 _config = Config.from_yaml(project_config_path)
-                # 只更新API Key，保持其他配置不变
-                api_key = os.getenv("OPENAI_API_KEY")
-                if api_key:
-                    _config.openai.update_api_key(api_key)
                 print(f"✓ 配置加载成功: {_config.project_name} v{_config.version}")
             except Exception as e:
                 print(f"✗ 配置文件加载失败: {e}")
                 raise
         else:
             raise FileNotFoundError(f"项目配置文件不存在: {project_config_path}")
-    
+
     return _config
 
 
@@ -271,6 +263,5 @@ def set_config(config: Config) -> None:
 def load_config(config_path: Union[str, Path]) -> Config:
     """加载配置文件并设置为全局配置"""
     config = Config.from_yaml(config_path)
-    config.update_from_env()
     set_config(config)
     return config
