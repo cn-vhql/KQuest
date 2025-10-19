@@ -291,9 +291,9 @@ python examples/example_usage.py
 
 ## 📞 联系我们
 
-- 📧 Email: [your-email@example.com]
-- 🐛 Issues: [GitHub Issues](https://github.com/your-repo/KQuest/issues)
-- 📖 Wiki: [项目Wiki](https://github.com/your-repo/KQuest/wiki)
+- 📧 Email: [yl_zhangqiang@foxmail.com]
+- 🐛 Issues: [GitHub Issues](https://github.com/cn-vhql/KQuest/issues)
+- 📖 Wiki: [项目Wiki](https://github.com/cn-vhql/KQuest/wiki)
 
 ---
 
