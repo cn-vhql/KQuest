@@ -17,6 +17,9 @@ dependencies = [
     "python-dotenv>=1.0.0",
     "aiofiles>=23.0.0",
     "asyncio-throttle>=1.0.2",
+    "streamlit>=1.50.0",
+    "matplotlib>=3.7.0",
+    "pandas>=2.0.0",
 ]
 
 [project.optional-dependencies]

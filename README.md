@@ -80,9 +80,51 @@ kquest query --kg output/kg.json --mode graph --question "机器学习和深度�
 kquest query --kg output/kg.json --mode hybrid --question "Python为什么适合AI开发？"
 ```
 
+## 🎯 Web 界面
+
+KQuest 提供了基于 Streamlit 的可视化 Web 界面，让您能够通过浏览器轻松使用知识图谱抽取和问答功能。
+
+### 快速启动 Web UI
+
+```bash
+# 安装基础依赖
+uv sync
+
+# 启动 Web UI
+python run_web.py
+
+# 或直接使用 streamlit
+streamlit run src/kquest/web_ui.py
+```
+
+### 可视化功能（可选）
+
+如需完整的可视化功能，请安装额外依赖：
+```bash
+pip install matplotlib pandas networkx
+```
+
+然后访问 http://localhost:8501 即可使用图形界面。
+
+> 💡 **提示**: 即使没有可视化依赖，Web UI 也能正常工作，只是图表功能会显示为文本格式。详细安装说明请参考 [安装指南](INSTALL_WEB_UI.md)。
+
+### Web UI 功能
+
+- **📄 知识抽取**: 上传文档，一键抽取知识三元组
+- **🤖 智能问答**: 三种推理模式可选
+  - 📊 **纯图算法**: 快速查询，基础质量
+  - 🔗 **混合推理**: 平衡性能，高质量
+  - 🚀 **LLM驱动**: 复杂分析，最高质量
+- **📊 数据可视化**: 知识图谱统计信息和网络结构图
+- **⚙️ 配置管理**: 可视化配置 API 参数和抽取设置
+- **💬 问答历史**: 查看和管理问答记录，包含推理模式信息
+
+详细使用说明请参考 [Web UI 使用指南](docs/web_ui.md)。
+
 ## 📖 详细文档
 
-- [用户指南](docs/user_guide.md) - 完整的使用说明和最佳实践
+- [Web UI 使用指南](docs/web_ui.md) - 图形界面完整使用说明
+- [用户指南](docs/user_guide.md) - 命令行使用说明和最佳实践
 - [API文档](docs/api.md) - Python API参考
 - [配置说明](docs/configuration.md) - 详细的配置选项
 - [开发指南](docs/development.md) - 贡献代码和扩展功能
